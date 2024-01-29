@@ -6,6 +6,7 @@
               [{{top/ns}}.system :as system])
     (:gen-class))
 
+(set! *warn-on-reflection* true)
 
 (defn -main
   "Initialize the system and starts the web server."

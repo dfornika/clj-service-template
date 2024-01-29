@@ -1,16 +1,21 @@
 (ns user
-  (:require [integrant.repl]))
-
-(def prep integrant.repl/prep)
-(def init integrant.repl/init)
-(def go integrant.repl/go)
-(def halt integrant.repl/halt)
-(def reset integrant.repl/reset)
-(def reset-all integrant.repl/reset-all)
+  (:require [integrant.repl :refer [clear go halt prep init reset reset-all]]
+            [ragtime.repl]
+            [{{top/ns}}.config]
+            [{{top/ns}}.system]))
 
 (def config-path "dev-config.edn")
 
+(defn pref-fn
+  ""
+  []
+  (-> {{top/ns}}.system/system-config
+      (assoc-in [:app/config :path] config-path)))
+
+(integrant.repl/set-prep! pref-fn)
+
 (comment
+  (ragtime.repl/migrate config)
   (go)
   (reset)
   (halt)
