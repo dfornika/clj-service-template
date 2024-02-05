@@ -1,6 +1,8 @@
 (ns user
   (:require [integrant.repl :refer [clear go halt prep init reset reset-all]]
+            [integrant.repl.state :refer [system config]]
             [ragtime.repl]
+            [ragtime.jdbc]
             [{{top/ns}}.config]
             [{{top/ns}}.system]))
 
@@ -15,7 +17,12 @@
 (integrant.repl/set-prep! pref-fn)
 
 (comment
-  (ragtime.repl/migrate config)
+  (def ragtime-config {:datastore (ragtime.jdbc/sql-database
+                                   {:connection-uri "jdbc:postgresql://localhost:5432/dev"
+                                    :user "dev"
+                                    :password "dev"})
+                       :migrations (ragtime.jdbc/load-resources "migrations")})
+  (ragtime.repl/migrate ragtime-config)
   (go)
   (reset)
   (halt)

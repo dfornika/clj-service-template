@@ -1,18 +1,28 @@
 (ns {{top/ns}}.system
   (:require [integrant.core :as ig]
+            [next.jdbc.connection :as jdbc.connection]
             [ring.adapter.jetty :as jetty]
             [ring.util.response :as resp]
-            [{{top/ns}}.config :as config]))
+            [{{top/ns}}.config :as config]
+            [{{top/ns}}.handlers :as handlers])
+  (:import (com.zaxxer.hikari HikariDataSource)))
 
 
 (def system-config
   {:app/config {}
+   :db/datasource {:config (ig/ref :app/config)}
    :adapter/jetty {:config (ig/ref :app/config)
-                   :handler (ig/ref :handler/greet)}
-   :handler/greet {:name "Alice"}})
+                   :handler (ig/ref :handler/root)}
+   :handler/root {:db (ig/ref :db/datasource)}})
 
 (defmethod ig/init-key :app/config [_ {:keys [path] :as opts}]
   ({{top/ns}}.config/load-config path))
+
+(defmethod ig/init-key :db/datasource [_ {:keys [config] :as opts}]
+  (jdbc.connection/->pool HikariDataSource (:db config)))
+
+(defmethod ig/halt-key! :db/datasource [_ ds]
+  (.close ds))
 
 (defmethod ig/init-key :adapter/jetty [_ {:keys [config handler] :as opts}]
   (jetty/run-jetty handler (-> (:server config) (assoc :join? false))))
@@ -20,5 +30,5 @@
 (defmethod ig/halt-key! :adapter/jetty [_ server]
   (.stop server))
 
-(defmethod ig/init-key :handler/greet [_ {:keys [name]}]
-  (fn [_] (resp/response (str "Hello " name))))
+(defmethod ig/init-key :handler/root [_ {:keys [db]}]
+  (handlers/root-handler db))

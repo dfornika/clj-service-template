@@ -15,6 +15,7 @@
    {"main.tmpl" "{{main/file}}.clj"
     "system.tmpl" "system.clj"
     "config.tmpl" "config.clj"
-    "cli.tmpl" "cli.clj"}]]}
+    "cli.tmpl" "cli.clj"
+    "handlers.tmpl" "handlers.clj"}]
   ["test" "test/{{top/file}}"
    {"main_test.tmpl" "{{main/file}}_test.clj"}]]}

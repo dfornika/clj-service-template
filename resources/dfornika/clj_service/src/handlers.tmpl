@@ -1,0 +1,45 @@
+(ns {{top/ns}}.handlers
+  (:require [reitit.ring]
+            [reitit.ring.coercion]
+            [reitit.coercion.spec]
+            [muuntaja.core :as muuntaja]
+            [reitit.ring.middleware.exception]
+            [reitit.ring.middleware.parameters]
+            [reitit.ring.middleware.muuntaja]
+            [reitit.swagger]
+            [ring.util.response :refer [response not-found]]
+            [ring.middleware.json :refer [wrap-json-response]]))
+
+
+(defn make-routes
+  "Create routes."
+  [db]
+  [["/openapi.json"
+    {:get {:no-doc true
+           :swagger {:basePath "/"}
+           :handler (reitit.swagger/create-swagger-handler)}}]
+   ["/"
+    {:get {:no-doc true
+           :handler (fn [request]
+                      (response {}))}}]])
+
+(defn make-router
+  "Create router."
+  [db]
+  (reitit.ring/router
+   (make-routes db)
+   {:data {:coercion   reitit.coercion.spec/coercion
+           :muuntaja   muuntaja/instance
+           :middleware [reitit.ring.middleware.exception/exception-middleware
+                        reitit.ring.middleware.parameters/parameters-middleware
+                        reitit.ring.coercion/coerce-request-middleware
+                        reitit.ring.coercion/coerce-response-middleware
+                        reitit.ring.middleware.muuntaja/format-response-middleware]}}))
+
+(defn root-handler
+  ""
+  [db]
+  (wrap-json-response
+   (reitit.ring/ring-handler
+    (make-router db)
+    (reitit.ring/redirect-trailing-slash-handler {:method :strip}))))
