@@ -6,23 +6,31 @@
             [{{top/ns}}.config]
             [{{top/ns}}.system]))
 
-(def config-path "dev-config.edn")
 
-(defn pref-fn
+(defn make-pref-fn
   ""
-  []
-  (-> {{top/ns}}.system/system-config
-      (assoc-in [:app/config :path] config-path)))
+  [config-path]
+  (fn []
+    (-> {{top/ns}}.system/system-config
+        (assoc-in [:app/config :path] config-path))))
 
-(integrant.repl/set-prep! pref-fn)
 
 (comment
+  ;; DB Migrations
   (def ragtime-config {:datastore (ragtime.jdbc/sql-database
                                    {:connection-uri "jdbc:postgresql://localhost:5432/dev"
                                     :user "dev"
                                     :password "dev"})
                        :migrations (ragtime.jdbc/load-resources "migrations")})
   (ragtime.repl/migrate ragtime-config)
+  )
+
+(comment
+
+  (def config-path "dev-config.edn")
+  ;; App config & startup
+  (integrant.repl/set-prep! (make-pref-fn config-path))
+  
   (go)
   (reset)
   (halt)

@@ -42,9 +42,8 @@
                   {"build.tmpl" "build.clj"
                    "deps.tmpl" "deps.edn"} :only]
                  ["src" "src/{{top/file}}"
-                  {"main.tmpl" "{{main/file}}.clj"}]
-                 ["test" "test/{{top/file}}"
-                  {"main_test.tmpl" "{{main/file}}_test.clj"}]]}
+                  {"main.tmpl" "main.clj"}]
+                 ["test" "test/{{top/file}}"]]}
   (println (str "template-fn returning edn"))
   edn)
 

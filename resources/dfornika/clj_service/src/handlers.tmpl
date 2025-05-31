@@ -7,8 +7,7 @@
             [reitit.ring.middleware.parameters]
             [reitit.ring.middleware.muuntaja]
             [reitit.swagger]
-            [ring.util.response :refer [response not-found]]
-            [ring.middleware.json :refer [wrap-json-response]]))
+            [ring.util.response :refer [response not-found]]))
 
 
 (defn make-routes
@@ -39,7 +38,6 @@
 (defn root-handler
   ""
   [db]
-  (wrap-json-response
-   (reitit.ring/ring-handler
-    (make-router db)
-    (reitit.ring/redirect-trailing-slash-handler {:method :strip}))))
+  (reitit.ring/ring-handler
+   (make-router db)
+   (reitit.ring/redirect-trailing-slash-handler {:method :strip})))

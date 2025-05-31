@@ -12,10 +12,9 @@
     "deps.tmpl"  "deps.edn"}
    :only]
   ["src" "src/{{top/file}}"
-   {"main.tmpl" "{{main/file}}.clj"
+   {"main.tmpl" "main.clj"
     "system.tmpl" "system.clj"
     "config.tmpl" "config.clj"
     "cli.tmpl" "cli.clj"
     "handlers.tmpl" "handlers.clj"}]
-  ["test" "test/{{top/file}}"
-   {"main_test.tmpl" "{{main/file}}_test.clj"}]]}
+  ["test" "test/{{top/file}}"]]}

@@ -1,25 +1,34 @@
-(ns {{top/ns}}.{{main/ns}}
-    (:require [clojure.tools.cli :refer [parse-opts]]
-              [clojure.string :as str]
-              [integrant.core :as ig]
-              [{{top/ns}}.cli :as cli]
-              [{{top/ns}}.system :as system])
-    (:gen-class))
+(ns {{top/ns}}.main
+  (:require [clojure.tools.cli :refer [parse-opts]]
+            [clojure.string :as str]
+            [integrant.core :as ig]
+            [{{top/ns}}.cli :as cli]
+            [{{top/ns}}.system :as system])
+  (:gen-class))
 
 (set! *warn-on-reflection* true)
 
 (defn -main
   "Initialize the system and starts the web server."
   [& args]
-  (let [opts (parse-opts args cli/options)]
-
-    (when (not (empty? (:errors opts)))
-      (cli/exit 1 (str/join \newline (:errors opts))))
-
-    (when (get-in opts [:options :help])
+  (let [{:keys [options errors summary] :as opts} (parse-opts args cli/options)]
+    (cond
+      (:help options)
       (let [options-summary (:summary opts)]
-        (cli/exit 0 (cli/usage options-summary))))
+        (cli/exit 0 (cli/usage options-summary)))
 
-    (-> system/system-config
-        (assoc-in [:app/config :path] (get-in opts [:options :config]))
-      ig/init)))
+      (:version options)
+      (println "{{top/ns}} version 0.1.0")
+
+      errors
+      (do
+        (binding [*out* *err*]
+          (println "Errors:" errors))
+        (System/exit 1))
+
+      :else
+      (let [config-path (:config options)]
+        (-> system/system-config
+          (assoc-in [:app/config :path] config-path)
+          ig/init)))))
+

@@ -1,5 +1,7 @@
-{:server {:port 8080}
+{:server {:port #or [#env HTTP_PORT 3000]}
  :db {:dbtype "postgres"
-      :dbname "dev"
-      :username "dev"
-      :password "dev"}}
+      :dbname #or [#env DATABASE_NAME "appdb"]
+      :host #or [#env DATABASE_HOST "db"]
+      :port #or [#env DATABASE_PORT 5432]
+      :user #or [#env DATABASE_USER "appuser"]
+      :password #or [#env DATABASE_USER "secret"]}}

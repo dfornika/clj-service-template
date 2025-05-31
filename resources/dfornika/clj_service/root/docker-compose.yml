@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      - POSTGRES_USER=appuser
+      - POSTGRES_PASSWORD=secret
+      - POSTGRES_DB=appdb
+    ports:
+      - 5342:5342
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+      - ./dev-config.edn:/app/config.edn
+    ports:
+      - "3000:3000" # HTTP
+      - "7888:7888" # nREPL
+    environment:
+      - DATABASE_NAME=appdb
+      - DATABASE_HOST=db
+      - DATABASE_PORT=5432
+      - DATABASE_USER=appuser
+      - DATABASE_PASSWORD=secret
+    depends_on:
+      - db
+  
+volumes:
+  pgdata:
