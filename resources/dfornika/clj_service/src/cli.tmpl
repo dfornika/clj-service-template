@@ -16,6 +16,7 @@
 
 (def options
   [["-c" "--config CONFIG_FILE" "Config file"
+    :default (System/getenv "CONFIG_FILE")
     :validate [#(.exists (io/as-file %)) #(str "Config file '" % "' does not exist.")]]
    ["-h" "--help"]
    ["-v" "--version"]])

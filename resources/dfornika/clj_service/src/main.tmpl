@@ -1,5 +1,6 @@
 (ns {{top/ns}}.main
-  (:require [clojure.tools.cli :refer [parse-opts]]
+  (:require [clojure.java.io :as io]
+            [clojure.tools.cli :refer [parse-opts]]
             [clojure.string :as str]
             [integrant.core :as ig]
             [{{top/ns}}.cli :as cli]
@@ -18,7 +19,8 @@
         (cli/exit 0 (cli/usage options-summary)))
 
       (:version options)
-      (println "{{top/ns}} version 0.1.0")
+      (let [version (-> "version.edn" io/resource slurp read-string :version)]
+        (println (str/join " " ["{{top/ns}}" version])))
 
       errors
       (do
