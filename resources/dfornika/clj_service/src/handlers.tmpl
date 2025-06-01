@@ -21,7 +21,7 @@
    ["/"
     {:get {:no-doc true
            :handler (fn [request]
-	              (let [log-data (select-keys request [:scheme :path :request-method :headers :body])]
+	              (let [log-data (select-keys request [:scheme :path :request-method :headers])]
 	                (log/info log-data)
                         (response {})))}}]])
 

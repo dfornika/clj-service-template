@@ -1,0 +1,9 @@
+(ns {{top/ns}}.logging
+  (:require [taoensso.telemere :as t]
+            [jsonista.core :as jsonista]))
+
+(def console-json-handler
+  (t/handler:console
+    {:output-fn
+     (t/pr-signal-fn
+       {:pr-fn jsonista/write-value-as-string})}))

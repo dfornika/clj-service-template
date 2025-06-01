@@ -1,10 +1,12 @@
 (ns {{top/ns}}.system
   (:require [integrant.core :as ig]
+            [taoensso.telemere :as t]
             [taoensso.telemere.tools-logging :as ttl]
             [next.jdbc.connection :as jdbc.connection]
             [ring.adapter.jetty :as jetty]
             [ring.util.response :as resp]
             [{{top/ns}}.config :as config]
+	    [{{top/ns}}.logging :as logging]
             [{{top/ns}}.handlers :as handlers])
   (:import (com.zaxxer.hikari HikariDataSource)))
 
@@ -15,14 +17,14 @@
    :db/datasource {:config (ig/ref :app/config)}
    :server/http {:config (ig/ref :app/config)
                  :handler (ig/ref :handler/root)}
-   :handler/root {:db (ig/ref :db/datasource)
-                  :logging (ig/ref :app/logging)}})
+   :handler/root {:db (ig/ref :db/datasource)}})
 
 (defmethod ig/init-key :app/config [_ {:keys [path] :as opts}]
   ({{top/ns}}.config/load-config path))
 
 (defmethod ig/init-key :app/logging [_ _]
-  (ttl/tools-logging->telemere!))
+  (ttl/tools-logging->telemere!)
+  (t/add-handler! :console/json logging/console-json-handler))
 
 (defmethod ig/init-key :db/datasource [_ {:keys [config] :as opts}]
   (jdbc.connection/->pool HikariDataSource (:db config)))
