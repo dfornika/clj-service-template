@@ -1,5 +1,6 @@
 (ns {{top/ns}}.system
   (:require [integrant.core :as ig]
+            [taoensso.telemere.tools-logging :as ttl]
             [next.jdbc.connection :as jdbc.connection]
             [ring.adapter.jetty :as jetty]
             [ring.util.response :as resp]
@@ -10,13 +11,18 @@
 
 (def system-config
   {:app/config {}
+   :app/logging {}
    :db/datasource {:config (ig/ref :app/config)}
    :server/http {:config (ig/ref :app/config)
                  :handler (ig/ref :handler/root)}
-   :handler/root {:db (ig/ref :db/datasource)}})
+   :handler/root {:db (ig/ref :db/datasource)
+                  :logging (ig/ref :app/logging)}})
 
 (defmethod ig/init-key :app/config [_ {:keys [path] :as opts}]
   ({{top/ns}}.config/load-config path))
+
+(defmethod ig/init-key :app/logging [_ _]
+  (ttl/tools-logging->telemere!))
 
 (defmethod ig/init-key :db/datasource [_ {:keys [config] :as opts}]
   (jdbc.connection/->pool HikariDataSource (:db config)))

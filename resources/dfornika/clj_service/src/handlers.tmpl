@@ -7,7 +7,8 @@
             [reitit.ring.middleware.parameters]
             [reitit.ring.middleware.muuntaja]
             [reitit.swagger]
-            [ring.util.response :refer [response not-found]]))
+            [ring.util.response :refer [response not-found]]
+	    [clojure.tools.logging :as log]))
 
 
 (defn make-routes
@@ -20,7 +21,9 @@
    ["/"
     {:get {:no-doc true
            :handler (fn [request]
-                      (response {}))}}]])
+	              (let [log-data (select-keys request [:scheme :path :request-method :headers :body])]
+	                (log/info log-data)
+                        (response {})))}}]])
 
 (defn make-router
   "Create router."
