@@ -1,5 +1,7 @@
 #!/bin/bash
 
+rm -rf ../generated-service
+
 clojure \
     -Sdeps '{:deps {net.clojars.dfornika/clj-service {:local/root "."}}}' \
     -Tnew create \

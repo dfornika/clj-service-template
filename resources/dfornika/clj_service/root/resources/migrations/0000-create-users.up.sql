@@ -1,7 +1,6 @@
-CREATE TABLE "entity" (
-    id SERIAL PRIMARY KEY,
-    attribute TEXT NOT NULL,
-    value TEXT NOT NULL,
+CREATE TABLE "users" (
+    pk SERIAL PRIMARY KEY,
+    user_id TEXT NOT NULL,
     created_at TIMESTAMP default current_timestamp,
     updated_at TIMESTAMP default current_timestamp
 );
