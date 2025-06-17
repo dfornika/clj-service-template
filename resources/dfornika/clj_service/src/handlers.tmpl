@@ -1,180 +1,135 @@
 (ns {{top/ns}}.handlers
   (:require [reitit.ring]
             [reitit.ring.coercion]
-            [reitit.coercion.spec]
             [reitit.coercion.malli]
-            [malli.util :as mu]
             [muuntaja.core :as muuntaja]
             [reitit.ring.middleware.exception]
             [reitit.ring.middleware.parameters]
             [reitit.ring.middleware.muuntaja]
             [reitit.swagger]
             [ring.util.response :refer [response not-found created bad-request]]
-            [clojure.tools.logging :as log]
-            [dfornika.database :as db]
-            [dfornika.repositories.users :as users-repo]))
+            [clojure.tools.logging :as log]))
 
-;; Malli schemas for API validation
-(def user-response-schema
-  [:map
-   [:pk :int]
-   [:user-id :string]
-   [:created-at :string]
-   [:updated-at :string]])
-
-(def create-user-request-schema
-  [:map
-   [:user-id :string]])
-
-(def update-user-request-schema
-  [:map
-   [:user-id {:optional true} :string]])
-
-(def users-list-response-schema
-  [:vector user-response-schema])
-
-;; Error handling helpers
-(defn handle-error
-  "Standard error response handler."
-  [e]
-  (log/error e "Request failed")
-  (let [data (ex-data e)]
-    (cond
-      (= (:type data) :validation-error)
-      (bad-request {:error "Validation failed" :details (:errors data)})
-
-      (= (:type data) :not-found)
-      (not-found {:error "Resource not found" :details (:message e)})
-
-      :else
-      {:status 500
-       :body {:error "Internal server error"}})))
-
-;; Route handlers
+;; Simple health check handler that doesn't depend on database
 (defn health-handler
   "Health check endpoint."
   [_request]
-  (response {:status "ok" :timestamp (java.time.Instant/now)}))
+  (response {:status "ok" :timestamp (str (java.time.Instant/now))}))
 
+;; Placeholder handlers for now
 (defn create-user-handler
-  "Create a new user."
-  [database]
+  "Create a new user - placeholder implementation."
+  [datasource]
   (fn [{:keys [body-params] :as request}]
-    (try
-      (let [user (users-repo/create-user! database body-params)]
-        (log/info "User created successfully" {:user-id (:user-id user)})
-        (created (str "/api/users/" (:user-id user)) user))
-      (catch Exception e
-        (handle-error e)))))
+    (log/info "Create user called" {:body body-params})
+    (created "/api/users/placeholder" {:user-id "placeholder" :message "User creation not yet implemented"})))
 
 (defn get-user-handler
-  "Get a user by ID."
-  [database]
+  "Get a user by ID - placeholder implementation."
+  [datasource]
   (fn [{{:keys [user-id]} :path-params :as request}]
-    (try
-      (if-let [user (users-repo/get-user-by-id database user-id)]
-        (response user)
-        (not-found {:error "User not found" :user-id user-id}))
-      (catch Exception e
-        (handle-error e)))))
+    (log/info "Get user called" {:user-id user-id})
+    (response {:user-id user-id :message "User retrieval not yet implemented"})))
 
 (defn list-users-handler
-  "List users with optional pagination."
-  [database]
+  "List users - placeholder implementation."
+  [datasource]
   (fn [{{:keys [page size]} :query-params :as request}]
-    (try
-      (let [opts (cond-> {}
-                   page (assoc :page (Integer/parseInt page))
-                   size (assoc :size (Integer/parseInt size)))
-            users (users-repo/list-users database opts)
-            total (users-repo/count-users database)]
-        (response {:users users
-                   :total total
-                   :page (or (:page opts) 1)
-                   :size (or (:size opts) 20)}))
-      (catch Exception e
-        (handle-error e)))))
+    (log/info "List users called" {:page page :size size})
+    (response {:users [] :total 0 :page 1 :size 20 :message "User listing not yet implemented"})))
 
 (defn update-user-handler
-  "Update an existing user."
-  [database]
+  "Update a user - placeholder implementation."
+  [datasource]
   (fn [{{:keys [user-id]} :path-params
         body-params :body-params
         :as request}]
-    (try
-      (users-repo/update-user! database user-id body-params)
-      (let [updated-user (users-repo/get-user-by-id database user-id)]
-        (response updated-user))
-      (catch Exception e
-        (handle-error e)))))
+    (log/info "Update user called" {:user-id user-id :body body-params})
+    (response {:user-id user-id :message "User update not yet implemented"})))
 
 (defn delete-user-handler
-  "Delete a user by ID."
-  [database]
+  "Delete a user - placeholder implementation."
+  [datasource]
   (fn [{{:keys [user-id]} :path-params :as request}]
-    (try
-      (users-repo/delete-user! database user-id)
-      (response {:message "User deleted successfully" :user-id user-id})
-      (catch Exception e
-        (handle-error e)))))
+    (log/info "Delete user called" {:user-id user-id})
+    (response {:message "User deleted successfully" :user-id user-id :note "Placeholder implementation"})))
 
 (defn make-routes
   "Create routes."
   [datasource]
-  (let [database (db/create-database datasource)]
-    [["/openapi.json"
-      {:get {:no-doc true
-             :swagger {:basePath "/"}
-             :handler (reitit.swagger/create-swagger-handler)}}]
+  [["/openapi.json"
+    {:get {:no-doc true
+           :swagger {:info {:title "Generated Service API"
+                            :description "A generated REST API service"
+                            :version "1.0.0"}}
+           :handler (reitit.swagger/create-swagger-handler)}}]
 
-     ["/health"
-      {:get {:summary "Health check"
-             :responses {200 {:body [:map [:status :string] [:timestamp :string]]}}
-             :handler health-handler}}]
+   ["/health"
+    {:get {:summary "Health check"
+           :description "Check if the service is running"
+           :responses {200 {:body [:map
+                                   [:status :string]
+                                   [:timestamp :string]]}}
+           :handler health-handler}}]
 
-     ["/api"
-      ["/users"
-       {:get {:summary "List users"
-              :parameters {:query [:map
-                                   [:page {:optional true} :string]
-                                   [:size {:optional true} :string]]}
-              :responses {200 {:body [:map
-                                      [:users users-list-response-schema]
-                                      [:total :int]
-                                      [:page :int]
-                                      [:size :int]]}}
-              :handler (list-users-handler database)}
-        :post {:summary "Create user"
-               :parameters {:body create-user-request-schema}
-               :responses {201 {:body user-response-schema}
-                           400 {:body [:map [:error :string] [:details :any]]}}
-               :handler (create-user-handler database)}}]
+   ["/api"
+    ["/users"
+     {:get {:summary "List users"
+            :description "Get a list of all users with optional pagination"
+            :parameters {:query [:map
+                                 [:page {:optional true} :string]
+                                 [:size {:optional true} :string]]}
+            :responses {200 {:body [:map
+                                    [:users [:vector :map]]
+                                    [:total :int]
+                                    [:page :int]
+                                    [:size :int]
+                                    [:message :string]]}}
+            :handler (list-users-handler datasource)}
+      :post {:summary "Create user"
+             :description "Create a new user"
+             :parameters {:body [:map [:user-id :string]]}
+             :responses {201 {:body [:map
+                                     [:user-id :string]
+                                     [:message :string]]}
+                         400 {:body [:map [:error :string]]}}
+             :handler (create-user-handler datasource)}}]
 
-      ["/users/:user-id"
-       {:get {:summary "Get user by ID"
-              :parameters {:path [:map [:user-id :string]]}
-              :responses {200 {:body user-response-schema}
-                          404 {:body [:map [:error :string] [:user-id :string]]}}
-              :handler (get-user-handler database)}
-        :put {:summary "Update user"
-              :parameters {:path [:map [:user-id :string]]
-                           :body update-user-request-schema}
-              :responses {200 {:body user-response-schema}
-                          404 {:body [:map [:error :string]]}}
-              :handler (update-user-handler database)}
-        :delete {:summary "Delete user"
-                 :parameters {:path [:map [:user-id :string]]}
-                 :responses {200 {:body [:map [:message :string] [:user-id :string]]}
-                             404 {:body [:map [:error :string]]}}
-                 :handler (delete-user-handler database)}}]]
+    ["/users/:user-id"
+     {:get {:summary "Get user by ID"
+            :description "Retrieve a specific user by their ID"
+            :parameters {:path [:map [:user-id :string]]}
+            :responses {200 {:body [:map
+                                    [:user-id :string]
+                                    [:message :string]]}
+                        404 {:body [:map [:error :string]]}}
+            :handler (get-user-handler datasource)}
+      :put {:summary "Update user"
+            :description "Update an existing user"
+            :parameters {:path [:map [:user-id :string]]
+                         :body [:map [:user-id {:optional true} :string]]}
+            :responses {200 {:body [:map
+                                    [:user-id :string]
+                                    [:message :string]]}
+                        404 {:body [:map [:error :string]]}}
+            :handler (update-user-handler datasource)}
+      :delete {:summary "Delete user"
+               :description "Delete an existing user"
+               :parameters {:path [:map [:user-id :string]]}
+               :responses {200 {:body [:map
+                                       [:message :string]
+                                       [:user-id :string]
+                                       [:note :string]]}
+                           404 {:body [:map [:error :string]]}}
+               :handler (delete-user-handler datasource)}}]]
 
-     ["/"
-      {:get {:no-doc true
-             :handler (fn [request]
-                        (let [log-data (select-keys request [:scheme :path :request-method :headers])]
-                          (log/info log-data)
-                          (response {:message "Welcome to the API"
-                                     :endpoints ["/health" "/api/users" "/openapi.json"]})))}}]]))
+   ["/"
+    {:get {:no-doc true
+           :handler (fn [request]
+                      (let [log-data (select-keys request [:scheme :path :request-method :headers])]
+                        (log/info log-data)
+                        (response {:message "Welcome to the API"
+                                   :endpoints ["/health" "/api/users" "/openapi.json"]})))}}]])
 
 (defn make-router
   "Create router."
@@ -183,11 +138,13 @@
    (make-routes datasource)
    {:data {:coercion reitit.coercion.malli/coercion
            :muuntaja muuntaja/instance
-           :middleware [reitit.ring.middleware.exception/exception-middleware
+           :middleware [reitit.ring.middleware.muuntaja/format-negotiate-middleware
+                        reitit.ring.middleware.muuntaja/format-request-middleware
+                        reitit.ring.middleware.muuntaja/format-response-middleware
+                        reitit.ring.middleware.exception/exception-middleware
                         reitit.ring.middleware.parameters/parameters-middleware
                         reitit.ring.coercion/coerce-request-middleware
-                        reitit.ring.coercion/coerce-response-middleware
-                        reitit.ring.middleware.muuntaja/format-response-middleware]}}))
+                        reitit.ring.coercion/coerce-response-middleware]}}))
 
 (defn root-handler
   "Main application handler."

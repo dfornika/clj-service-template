@@ -11,6 +11,12 @@
    {"build.tmpl" "build.clj"
     "deps.tmpl"  "deps.edn"}
    :only]
+  ["env/dev" "env/dev"
+   {"user.tmpl" "user.clj"}
+   :only]
+  ["env/dev/examples" "env/dev/examples"
+   {"database_usage.tmpl" "database_usage.clj"}
+   :only]
   ["src" "src/{{top/file}}"
    {"main.tmpl" "main.clj"
     "system.tmpl" "system.clj"

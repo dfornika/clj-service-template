@@ -1,7 +1,7 @@
 (ns examples.database-usage
   "Examples demonstrating how to use the database layer."
-  (:require [dfornika.database :as db]
-            [dfornika.repositories.users :as users-repo]
+  (:require [{{top/ns}}.database :as db]
+            [{{top/ns}}.repositories.users :as users-repo]
             [next.jdbc.connection :as jdbc.connection])  
   (:import (com.zaxxer.hikari HikariDataSource)))
 
@@ -45,9 +45,9 @@
 
   ;; Example 3: Using the user repository
   ;; Create user with validation and metadata
-  (users-repo/create-user! database {:user-id \"jane.smith\"})
+  (users-repo/create-user! database {:user-id "jane.smith"})
   ;; Get user by ID
-  (users-repo/get-user-by-id database \"jane.smith\")
+  (users-repo/get-user-by-id database "jane.smith")
 
   ;; List users with pagination
   (users-repo/list-users database {:page 1 :size 10})

@@ -3,9 +3,16 @@
             [integrant.repl.state :refer [system config]]
             [ragtime.repl]
             [ragtime.jdbc]
+            [clj-reload.core :as reload]
             [{{top/ns}}.config]
             [{{top/ns}}.system]))
 
+(reload/init
+  {:dirs ["src" "dev" "test"]})
+
+(comment
+  (reload/reload)
+  )
 
 (defn make-pref-fn
   ""
