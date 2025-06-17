@@ -4,4 +4,4 @@
       :host #or [#env DATABASE_HOST "db"]
       :port #or [#env DATABASE_PORT 5432]
       :user #or [#env DATABASE_USER "appuser"]
-      :password #or [#env DATABASE_USER "secret"]}}
+      :password #or [#env DATABASE_PASSWORD "secret"]}}

@@ -18,9 +18,9 @@
 (comment
   ;; DB Migrations
   (def ragtime-config {:datastore (ragtime.jdbc/sql-database
-                                   {:connection-uri "jdbc:postgresql://localhost:5432/dev"
-                                    :user "dev"
-                                    :password "dev"})
+                                   {:connection-uri "jdbc:postgresql://localhost:5432/appdb"
+                                    :user "appuser"
+                                    :password "secret"})
                        :migrations (ragtime.jdbc/load-resources "migrations")})
   (ragtime.repl/migrate ragtime-config)
   )

@@ -17,5 +17,9 @@
     "config.tmpl" "config.clj"
     "logging.tmpl" "logging.clj"
     "cli.tmpl" "cli.clj"
-    "handlers.tmpl" "handlers.clj"}]
+    "database.tmpl" "database.clj"
+    "handlers.tmpl" "handlers.clj"}
+   :only]
+   ["src/repositories" "src/{{top/file}}/repositories"
+    {"users.tmpl" "users.clj"}]
   ["test" "test/{{top/file}}"]]}

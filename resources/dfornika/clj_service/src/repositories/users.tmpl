@@ -1,0 +1,154 @@
+(ns dfornika.repositories.users
+  "User repository providing user-specific database operations."
+  (:require [dfornika.database :as db]
+            [clojure.tools.logging :as log]
+            [malli.core :as m]
+            [malli.transform :as mt]))
+
+;; User schema definitions
+(def user-schema
+  [:map
+   [:user-id :string]
+   [:created-at {:optional true} :any]
+   [:updated-at {:optional true} :any]])
+
+(def create-user-schema
+  [:map
+   [:user-id :string]])
+
+(def update-user-schema
+  [:map
+   [:user-id {:optional true} :string]])
+
+;; Validation helpers
+(defn validate-user-data
+  "Validate user data against schema."
+  [schema data]
+  (when-not (m/validate schema data)
+    (throw (ex-info "Invalid user data"
+                    {:errors (m/explain schema data)
+                     :data data}))))
+
+;; Repository functions
+(defn create-user!
+  "Create a new user."
+  [database user-data]
+  (validate-user-data create-user-schema user-data)
+  (let [user-record (db/with-metadata user-data)]
+    (log/info "Creating user" {:user-id (:user-id user-record)})
+    (first (db/insert! database :users user-record))))
+
+(defn get-user-by-id
+  "Get a user by their ID."
+  [database user-id]
+  (log/debug "Fetching user by ID" {:user-id user-id})
+  (db/select-one database :users [:= :user-id user-id]))
+
+(defn get-user-by-pk
+  "Get a user by their primary key."
+  [database pk]
+  (log/debug "Fetching user by PK" {:pk pk})
+  (db/select-one database :users [:= :pk pk]))
+
+(defn list-users
+  "List users with optional pagination and filtering."
+  ([database]
+   (list-users database {}))
+  ([database {:keys [page size order-by where] :as opts}]
+   (log/debug "Listing users" opts)
+   (let [base-query {:select :*
+                     :from :users}
+         query-with-where (if where
+                            (assoc base-query :where where)
+                            base-query)
+         query-with-order (if order-by
+                            (db/order-by query-with-where order-by)
+                            (db/order-by query-with-where [[:created-at :desc]]))
+         paginated-query (if (or page size)
+                           (db/paginate query-with-order opts)
+                           query-with-order)]
+     (db/query database paginated-query))))
+
+(defn update-user!
+  "Update an existing user."
+  [database user-id updates]
+  (validate-user-data update-user-schema updates)
+  (when-not (get-user-by-id database user-id)
+    (throw (ex-info "User not found" {:user-id user-id})))
+  (let [prepared-updates (db/prepare-for-update updates)]
+    (log/info "Updating user" {:user-id user-id :updates (keys prepared-updates)})
+    (db/update! database :users prepared-updates [:= :user-id user-id])))
+
+(defn delete-user!
+  "Delete a user by their ID."
+  [database user-id]
+  (when-not (get-user-by-id database user-id)
+    (throw (ex-info "User not found" {:user-id user-id})))
+  (log/info "Deleting user" {:user-id user-id})
+  (db/delete! database :users [:= :user-id user-id]))
+
+(defn user-exists?
+  "Check if a user exists by their ID."
+  [database user-id]
+  (db/exists? database :users [:= :user-id user-id]))
+
+(defn count-users
+  "Count total number of users."
+  ([database]
+   (count-users database nil))
+  ([database where-clause]
+   (db/count-records database :users where-clause)))
+
+;; Advanced queries
+(defn find-users-created-after
+  "Find users created after a specific timestamp."
+  [database timestamp]
+  (list-users database {:where [:> :created-at timestamp]}))
+
+(defn find-users-by-pattern
+  "Find users whose user_id matches a pattern."
+  [database pattern]
+  (list-users database {:where [:like :user-id (str "%" pattern "%")]}))
+
+;; Batch operations
+(defn create-users!
+  "Create multiple users in a single transaction."
+  [database users-data]
+  (doseq [user-data users-data]
+    (validate-user-data create-user-schema user-data))
+  (db/transaction database
+                  (fn [tx-db]
+                    (let [users-with-metadata (map db/with-metadata users-data)]
+                      (log/info "Creating users in batch" {:count (count users-with-metadata)})
+                      (db/insert-many! tx-db :users users-with-metadata)))))
+
+;; Repository protocol implementation (optional - for dependency injection)
+(defprotocol UserRepository
+  (create-user [this user-data])
+  (get-user [this user-id])
+  (list-all-users [this] [this opts])
+  (update-user [this user-id updates])
+  (delete-user [this user-id])
+  (user-exists [this user-id]))
+
+(defrecord DatabaseUserRepository [database]
+  UserRepository
+  (create-user [this user-data]
+    (create-user! database user-data))
+  (get-user [this user-id]
+    (get-user-by-id database user-id))
+  (list-all-users [this]
+    (list-users database))
+  (list-all-users [this opts]
+    (list-users database opts))
+  (update-user [this user-id updates]
+    (update-user! database user-id updates))
+  (delete-user [this user-id]
+    (delete-user! database user-id))
+  (user-exists [this user-id]
+    (user-exists? database user-id)))
+
+(defn create-user-repository
+  "Create a user repository instance."
+  [database]
+  (->DatabaseUserRepository database))

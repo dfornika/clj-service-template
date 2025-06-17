@@ -1,0 +1,128 @@
+(ns examples.database-usage
+  "Examples demonstrating how to use the database layer."
+  (:require [dfornika.database :as db]
+            [dfornika.repositories.users :as users-repo]
+            [next.jdbc.connection :as jdbc.connection])  
+  (:import (com.zaxxer.hikari HikariDataSource)))
+
+(comment
+  ;; Example 1: Basic database setup
+  (def db-config {:dbtype "postgresql"
+                  :dbname "appdb"
+                  :host "localhost"
+                  :port 5432
+                  :user "appuser"
+                  :password "secret"})
+  
+  (def datasource (jdbc.connection/->pool HikariDataSource db-config))
+  
+  (def database (db/create-database datasource))
+
+  ;; Example 2: Direct database operations
+  ;; Create a user
+
+  (db/insert! database :users {:user-id "john.doe"
+                               :created-at (java.time.Instant/now)
+                               :updated-at (java.time.Instant/now)})
+
+  ;; Query users
+  (db/select database :users)
+
+  ;; Query with conditions
+  (db/select database :users [:= :user-id "john.doe"])
+
+  ;; Update user
+  (db/update! database :users
+              {:user-id "john.doe.updated"
+               :updated-at (java.time.Instant/now)} :user-id "john.doe")
+
+  ;; Count users
+  (db/count-records database :users)
+  
+  ;; Delete user
+  (db/delete! database :users [:= :user-id "john.doe.updated"])
+  
+
+  ;; Example 3: Using the user repository
+  ;; Create user with validation and metadata
+  (users-repo/create-user! database {:user-id \"jane.smith\"})
+  ;; Get user by ID
+  (users-repo/get-user-by-id database \"jane.smith\")
+
+  ;; List users with pagination
+  (users-repo/list-users database {:page 1 :size 10})
+
+  ;; Update user
+  (users-repo/update-user! database "jane.smith" {:user-id "jane.smith.updated"})
+  ;; Check if user exists
+
+  (users-repo/user-exists? database "jane.smith.updated")
+  ;; Advanced queries
+  (users-repo/find-users-by-pattern database "jane")
+  (users-repo/find-users-created-after database (java.time.Instant/parse "2025-01-01T00:00:00Z"))
+  ;; Batch operations
+  (users-repo/create-users! database [{:user-id "user1"}
+                                      {:user-id "user2"}
+                                      {:user-id "user3"}])
+  ;; Example 4: Using transactions
+  (db/transaction database (fn [tx-db]
+                             (users-repo/create-user! tx-db {:user-id "transactional-user"})
+                             (users-repo/update-user! tx-db "transactional-user" {:user-id "updated-in-transaction"})
+                             
+                             ;; If any operation fails, the entire transaction is rolled back
+                             ))
+
+  ;; Example 5: Complex queries with HoneySQL
+  (db/query database {:select [:user-id :created-at]
+                      :from :users
+                      :where [:and
+                              [:like :user-id "%smith%"]
+                              [:> :created-at "2025-01-01"]]
+                      :order-by [[:created-at :desc]]
+                      :limit 5})
+  ;; Example 6: Using the repository protocol
+  (for dependency injection)
+  (def user-repo (users-repo/create-user-repository database))
+  (users-repo/create-user user-repo {:user-id "protocol.user"})
+  
+  (users-repo/get-user user-repo "protocol.user")
+  (users-repo/list-all-users user-repo {:page 1 :size 5})
+  ;; Clean up
+  (.close datasource)
+  )
+
+;; Example service function using the database layer
+
+(defn user-service-example
+  "Example service function that demonstrates proper database usage."
+  [database user-id]
+  (try
+    ;; Check if user exists
+    (if (users-repo/user-exists? database user-id)
+      {:status :found
+       :user (users-repo/get-user-by-id database user-id)}
+      {:status :not-found
+       :message (str "User " user-id " not found")})
+    (catch Exception e
+      {:status :error
+       :message (.getMessage e)})))
+
+;; Example bulk operation with error handling
+
+(defn bulk-create-users
+  "Example of bulk user creation with proper error handling."
+  [database users-data]
+  (try
+    (db/transaction database
+                    (fn [tx-db]
+                      (doseq [user-data users-data]
+                        (when (users-repo/user-exists? tx-db (:user-id user-data))
+                          (throw
+                           (ex-info "User already exists" {:user-id (:user-id user-data)})))
+                        (users-repo/create-user! tx-db user-data))))
+    {:status :success
+     :created (count users-data)}
+    (catch Exception e
+      {:status :error
+       :message (.getMessage e)
+       :data (ex-data e)})))

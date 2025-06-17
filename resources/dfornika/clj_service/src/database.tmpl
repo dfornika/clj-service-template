@@ -1,0 +1,152 @@
+(ns {{top/ns}}.database
+  "Database layer providing generic CRUD operations and query utilities."
+  (:require [next.jdbc :as jdbc]
+            [next.jdbc.result-set :as rs]
+            [honey.sql :as sql]
+            [clojure.tools.logging :as log]))
+
+(defprotocol Database
+  "Protocol for database operations."
+  (execute! [this query] [this query opts]
+    "Execute a query that modifies data (INSERT, UPDATE, DELETE).")
+  (query [this query] [this query opts]
+    "Execute a query that returns data (SELECT).")
+  (transaction [this f]
+    "Execute function f within a database transaction."))
+
+(defrecord PostgresDatabase [datasource]
+  Database
+  (execute! [this query]
+    (execute! this query {}))
+  (execute! [this query opts]
+    (try
+      (let [sql-query (if (map? query) (sql/format query) query)
+            result (jdbc/execute! datasource sql-query (merge {:return-keys true} opts))]
+        (log/debug "Executed query" {:query sql-query :result-count (count result)})
+        result)
+      (catch Exception e
+        (log/error e "Query execution failed" {:query query})
+        (throw e))))
+
+  (query [this query]
+    (query this query {}))
+  (query [this query opts]
+    (try
+      (let [sql-query (if (map? query) (sql/format query) query)
+            result (jdbc/execute! datasource sql-query
+                                  (merge {:builder-fn rs/as-unqualified-lower-maps} opts))]
+        (log/debug "Executed query" {:query sql-query :result-count (count result)})
+        result)
+      (catch Exception e
+        (log/error e "Query execution failed" {:query query})
+        (throw e))))
+
+  (transaction [this f]
+    (jdbc/with-transaction [tx datasource]
+      (f (->PostgresDatabase tx)))))
+
+(defn create-database
+  "Create a database instance from a datasource."
+  [datasource]
+  (->PostgresDatabase datasource))
+
+;; Generic CRUD operations
+
+(defn insert!
+  "Insert a record into the specified table."
+  [db table record]
+  (execute! db {:insert-into table
+                :values [record]}))
+
+(defn insert-many!
+  "Insert multiple records into the specified table."
+  [db table records]
+  (execute! db {:insert-into table
+                :values records}))
+
+(defn update!
+  "Update records in the specified table."
+  [db table updates where-clause]
+  (execute! db {:update table
+                :set updates
+                :where where-clause}))
+
+(defn delete!
+  "Delete records from the specified table."
+  [db table where-clause]
+  (execute! db {:delete-from table
+                :where where-clause}))
+
+(defn select
+  "Select records from the specified table."
+  ([db table]
+   (query db {:select :*
+              :from table}))
+  ([db table where-clause]
+   (query db {:select :*
+              :from table
+              :where where-clause}))
+  ([db table where-clause opts]
+   (query db (merge {:select :*
+                     :from table
+                     :where where-clause}
+                    opts))))
+
+(defn select-one
+  "Select a single record from the specified table."
+  ([db table where-clause]
+   (first (select db table where-clause {:limit 1})))
+  ([db table where-clause opts]
+   (first (select db table where-clause (merge opts {:limit 1})))))
+
+(defn exists?
+  "Check if any records exist matching the where clause."
+  [db table where-clause]
+  (seq (query db {:select [1]
+                  :from table
+                  :where where-clause
+                  :limit 1})))
+
+(defn count-records
+  "Count records in the specified table."
+  ([db table]
+   (count-records db table nil))
+  ([db table where-clause]
+   (let [query-map {:select [[:%count.* :count]]
+                    :from table}
+         query-with-where (if where-clause
+                            (assoc query-map :where where-clause)
+                            query-map)]
+     (-> (query db query-with-where)
+         first
+         :count))))
+
+;; Utility functions
+
+(defn paginate
+  "Add pagination to a query map."
+  [query-map {:keys [page size] :or {page 1 size 20}}]
+  (let [offset (* (dec page) size)]
+    (assoc query-map
+           :limit size
+           :offset offset)))
+
+(defn order-by
+  "Add ordering to a query map."
+  [query-map order-spec]
+  (assoc query-map :order-by order-spec))
+
+(defn with-metadata
+  "Add common metadata fields to a record."
+  ([record]
+   (with-metadata record {}))
+  ([record {:keys [created-at updated-at]
+            :or {created-at (java.time.Instant/now)
+                 updated-at (java.time.Instant/now)}}]
+   (merge record {:created-at created-at
+                  :updated-at updated-at})))
+
+(defn prepare-for-update
+  "Prepare a record for update by adding updated-at timestamp."
+  [record]
+  (assoc record :updated-at (java.time.Instant/now)))
