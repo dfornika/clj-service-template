@@ -4,8 +4,8 @@
             [ragtime.repl]
             [ragtime.jdbc]
             [clj-reload.core :as reload]
-            [{{top/ns}}.config]
-            [{{top/ns}}.system]))
+            [{{top/ns}}.{{main/ns}}.config]
+            [{{top/ns}}.{{main/ns}}.system]))
 
 (reload/init
   {:dirs ["src" "dev" "test"]})
@@ -18,7 +18,7 @@
   ""
   [config-path]
   (fn []
-    (-> {{top/ns}}.system/system-config
+    (-> {{top/ns}}.{{main/ns}}.system/system-config
         (assoc-in [:app/config :path] config-path))))
 
 

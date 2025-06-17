@@ -1,10 +1,10 @@
-(ns {{top/ns}}.main
+(ns {{top/ns}}.{{main/ns}}.main
   (:require [clojure.java.io :as io]
             [clojure.tools.cli :refer [parse-opts]]
             [clojure.string :as str]
             [integrant.core :as ig]
-            [{{top/ns}}.cli :as cli]
-            [{{top/ns}}.system :as system])
+            [{{top/ns}}.{{main/ns}}.cli :as cli]
+            [{{top/ns}}.{{main/ns}}.system :as system])
   (:gen-class))
 
 (set! *warn-on-reflection* true)

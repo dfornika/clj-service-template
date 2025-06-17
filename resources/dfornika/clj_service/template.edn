@@ -17,7 +17,7 @@
   ["env/dev/examples" "env/dev/examples"
    {"database_usage.tmpl" "database_usage.clj"}
    :only]
-  ["src" "src/{{top/file}}"
+  ["src" "src/{{top/file}}/{{main/file}}"
    {"main.tmpl" "main.clj"
     "system.tmpl" "system.clj"
     "config.tmpl" "config.clj"
@@ -26,6 +26,6 @@
     "database.tmpl" "database.clj"
     "handlers.tmpl" "handlers.clj"}
    :only]
-   ["src/repositories" "src/{{top/file}}/repositories"
+   ["src/repositories" "src/{{top/file}}/{{main/file}}/repositories"
     {"users.tmpl" "users.clj"}]
   ["test" "test/{{top/file}}"]]}
