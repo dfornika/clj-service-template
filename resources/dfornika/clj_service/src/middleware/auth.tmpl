@@ -1,0 +1,94 @@
+(ns {{top/ns}}.{{main/ns}}.middleware.auth
+  (:require [buddy.auth.middleware :as buddy-middleware]
+            [buddy.auth :refer [authenticated?]]
+            [{{top/ns}}.{{main/ns}}.auth :as auth]
+            [clojure.tools.logging :as log]
+            [ring.util.response :as resp]))
+
+(defn wrap-authentication
+  "Middleware to add OIDC JWT authentication to requests.
+   This middleware will:
+   1. Extract Bearer tokens from Authorization header
+   2. Validate JWT tokens against OIDC provider's JWKS
+   3. Add user identity to request if token is valid
+   4. Allow unauthenticated requests to continue (authentication is optional)"
+  [handler config]
+  (let [backend (auth/create-oidc-auth-backend config)]
+    (buddy-middleware/wrap-authentication handler backend)))
+
+(defn wrap-authorization
+  "Middleware to handle authorization errors.
+   This converts buddy-auth authorization failures into proper HTTP responses."
+  [handler config]
+  (let [backend (auth/create-oidc-auth-backend config)]
+    (buddy-middleware/wrap-authorization handler backend)))
+
+(defn authenticated-handler
+  "Wraps a handler to require authentication.
+   Returns 401 if no valid token is provided."
+  [handler]
+  (fn [request]
+    (if (authenticated? request)
+      (handler request)
+      (-> (resp/response {:error "Authentication required"
+                          :message "You must provide a valid Bearer token to access this resource"})
+          (resp/status 401)
+          (resp/header "Content-Type" "application/json")))))
+
+(defn require-roles-handler
+  "Wraps a handler to require specific roles.
+   Returns 403 if user doesn't have required roles."
+  [handler required-roles]
+  (fn [request]
+    (if-let [user-claims (auth/user-context request)]
+      (if (auth/has-any-role? user-claims required-roles)
+        (handler request)
+        (-> (resp/response {:error "Insufficient permissions"
+                            :message (str "Access denied. Required roles: " (clojure.string/join ", " required-roles))})
+            (resp/status 403)
+            (resp/header "Content-Type" "application/json")))
+      (-> (resp/response {:error "Authentication required"
+                          :message "You must provide a valid Bearer token to access this resource"})
+          (resp/status 401)
+          (resp/header "Content-Type" "application/json")))))
+
+(defn auth-middleware-stack
+  "Complete authentication middleware stack for the application.
+   Include this in your middleware chain to enable JWT authentication."
+  [config]
+  [(fn [handler] (wrap-authorization handler config))
+   (fn [handler] (wrap-authentication handler config))])
+
+(defn log-auth-request
+  "Middleware to log authentication attempts for debugging."
+  [handler]
+  (fn [request]
+    (let [token (auth/extract-bearer-token request)
+          user-id (when (authenticated? request)
+                    (get-in request [:identity :user-id]))]
+      (when token
+        (log/debug "Authentication attempt" 
+                   {:has-token (boolean token)
+                    :token-format-valid (auth/validate-token-format token)
+                    :authenticated (authenticated? request)
+                    :user-id user-id}))
+      (handler request))))
+
+(defn cors-headers
+  "Add CORS headers to response for API access."
+  [response]
+  (-> response
+      (resp/header "Access-Control-Allow-Origin" "*")
+      (resp/header "Access-Control-Allow-Methods" "GET, POST, PUT, DELETE, OPTIONS")
+      (resp/header "Access-Control-Allow-Headers" "Authorization, Content-Type, Accept")))
+
+(defn wrap-cors
+  "Middleware to handle CORS requests."
+  [handler]
+  (fn [request]
+    (if (= :options (:request-method request))
+      (-> (resp/response "")
+          (resp/status 200)
+          cors-headers)
+      (-> (handler request)
+          cors-headers))))

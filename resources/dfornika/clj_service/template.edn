@@ -9,7 +9,7 @@
  :transform
  [["build" ""
    {"build.tmpl" "build.clj"
-    "deps.tmpl"  "deps.edn"}
+    "deps.tmpl" "deps.edn"}
    :only]
   ["env/dev" "env/dev"
    {"user.tmpl" "user.clj"}
@@ -24,8 +24,13 @@
     "logging.tmpl" "logging.clj"
     "cli.tmpl" "cli.clj"
     "database.tmpl" "database.clj"
-    "handlers.tmpl" "handlers.clj"}
+    "handlers.tmpl" "handlers.clj"
+    "auth.tmpl" "auth.clj"}
    :only]
-   ["src/repositories" "src/{{top/file}}/{{main/file}}/repositories"
-    {"users.tmpl" "users.clj"}]
+  ["src/middleware" "src/{{top/file}}/{{main/file}}/middleware"
+   {"auth.tmpl" "auth.clj"}]
+  ["src/handlers" "src/{{top/file}}/{{main/file}}/handlers"
+   {"auth.tmpl" "auth.clj"}]
+  ["src/repositories" "src/{{top/file}}/{{main/file}}/repositories"
+   {"users.tmpl" "users.clj"}]
   ["test" "test/{{top/file}}"]]}

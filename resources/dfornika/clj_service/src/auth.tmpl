@@ -1,0 +1,248 @@
+(ns {{top/ns}}.{{main/ns}}.auth
+  (:require [buddy.sign.jwt :as jwt]
+            [buddy.auth.backends :as backends]
+            [buddy.auth :refer [authenticated?]]
+            [clj-http.client :as http]
+            [clojure.data.json :as json]
+            [clojure.core.cache :as cache]
+            [clojure.tools.logging :as log]
+            [clojure.string :as str])
+  (:import [java.time Instant]
+           [java.util Date]
+           [java.util.concurrent.atomic AtomicReference]))
+
+;; JWKS Cache - Thread-safe atomic reference to cache
+(def ^:private jwks-cache (AtomicReference. (cache/ttl-cache-factory {} :ttl (* 60 1000))))
+
+(defn- get-jwks-cache []
+  (.get jwks-cache))
+
+(defn- update-jwks-cache! [f & args]
+  (let [current-cache (get-jwks-cache)
+        new-cache (apply f current-cache args)]
+    (.set jwks-cache new-cache)))
+
+(defn fetch-jwks
+  "Fetch JWKS from OIDC provider's .well-known/jwks.json endpoint."
+  [provider-url]
+  (try
+    (let [jwks-url (if (str/ends-with? provider-url "/")
+                     (str provider-url ".well-known/jwks.json")
+                     (str provider-url "/.well-known/jwks.json"))
+          response (http/get jwks-url {:accept :json
+                                       :socket-timeout 5000
+                                       :connection-timeout 5000})]
+      (when (= 200 (:status response))
+        (json/read-str (:body response) :key-fn keyword)))
+    (catch Exception e
+      (log/error e "Failed to fetch JWKS from" provider-url)
+      nil)))
+
+(defn get-jwks
+  "Get JWKS, using cache or fetching if needed."
+  [config]
+  (let [provider-url (get-in config [:auth :oidc :provider-url])
+        ttl-minutes (get-in config [:auth :oidc :jwks-cache-ttl-minutes] 60)
+        cache-key :jwks
+        current-cache (get-jwks-cache)]
+    
+    (if (cache/has? current-cache cache-key)
+      ;; Cache hit
+      (do
+        (log/debug "Using cached JWKS")
+        (cache/lookup current-cache cache-key))
+      ;; Cache miss - fetch and cache
+      (do
+        (log/info "Fetching JWKS from provider" {:provider-url provider-url})
+        (when-let [jwks (fetch-jwks provider-url)]
+          (let [ttl-ms (* ttl-minutes 60 1000)
+                new-cache (cache/ttl-cache-factory {cache-key jwks} :ttl ttl-ms)]
+            (update-jwks-cache! (constantly new-cache))
+            (log/info "JWKS cached successfully" {:keys-count (count (:keys jwks))})
+            jwks))))))
+
+(defn find-jwk-by-kid
+  "Find a JWK by key ID (kid) from JWKS."
+  [jwks kid]
+  (when (and jwks kid (:keys jwks))
+    (->> (:keys jwks)
+         (filter #(= (:kid %) kid))
+         first)))
+
+(defn jwk->public-key
+  "Convert JWK to public key for token verification."
+  [jwk]
+  ;; This is a simplified implementation. In production, you'd want
+  ;; more robust JWK to public key conversion based on key type (RSA, EC, etc.)
+  (try
+    (when (and jwk (= (:kty jwk) "RSA"))
+      ;; For RSA keys, buddy can work with the JWK directly
+      ;; In a real implementation, you'd convert the JWK's n and e parameters
+      ;; to a proper RSA public key
+      jwk)
+    (catch Exception e
+      (log/error e "Failed to convert JWK to public key")
+      nil)))
+
+(defn token-expired?
+  "Check if a JWT token is expired."
+  [claims]
+  (when-let [exp (:exp claims)]
+    (> (System/currentTimeMillis) (* exp 1000))))
+
+(defn verify-oidc-token
+  "Verify JWT token against OIDC provider's JWKS."
+  [config token]
+  (when (and config token (not (str/blank? token)))
+    (try
+      ;; First decode the token header without verification to get the key ID
+      (let [token-parts (str/split token #"\.")
+            header-json (String. (.decode (java.util.Base64/getUrlDecoder) 
+                                          (.getBytes (first token-parts))))
+            header (json/read-str header-json :key-fn keyword)
+            kid (:kid header)]
+        
+        (when kid
+          (when-let [jwks (get-jwks config)]
+            (when-let [jwk (find-jwk-by-kid jwks kid)]
+              (when-let [public-key (jwk->public-key jwk)]
+                ;; Verify token with the public key
+                ;; Note: This is simplified - in production you'd need proper
+                ;; JWK to public key conversion and verification
+                (try
+                  (let [claims (jwt/unsign token public-key)]
+                    (when-not (token-expired? claims)
+                      claims))
+                  (catch Exception e
+                    (log/debug e "Token verification failed")
+                    nil)))))))
+      (catch Exception e
+        (log/debug e "Failed to verify OIDC token")
+        nil))))
+
+(defn extract-bearer-token
+  "Extract Bearer token from Authorization header."
+  [request]
+  (when-let [auth-header (get-in request [:headers "authorization"])]
+    (when (str/starts-with? auth-header "Bearer ")
+      (subs auth-header 7))))
+
+
+(defn extract-user-info
+  "Extract standardized user information from OIDC token claims."
+  [claims]
+  (when claims
+    {:user-id (:sub claims)
+     :email (or (:email claims) (:preferred_username claims))
+     :name (or (:name claims) (:given_name claims) (:family_name claims))
+     :roles (or (:roles claims) 
+                (:groups claims) 
+                (when-let [scope (:scope claims)]
+                  (str/split scope #" "))
+                [])
+     :client-id (:client_id claims)
+     :token-issued-at (:iat claims)
+     :token-expires-at (:exp claims)
+     :issuer (:iss claims)}))
+
+(defn has-role?
+  "Check if user has a specific role."
+  [user-info role]
+  (when-let [roles (:roles user-info)]
+    (some #{role} roles)))
+
+(defn has-any-role?
+  "Check if user has any of the specified roles."
+  [user-info required-roles]
+  (when-let [roles (:roles user-info)]
+    (some (set roles) required-roles)))
+
+(defn create-oidc-auth-backend
+  "Create a buddy-auth backend for OIDC JWT token authentication."
+  [config]
+  (backends/jws {:secret nil  ; We'll do custom verification
+                 :token-name "Bearer"
+                 :authfn (fn [request token]
+                           (when-let [claims (verify-oidc-token config token)]
+                             (extract-user-info claims)))}))
+
+(defn user-context
+  "Extract user context from authenticated request."
+  [request]
+  (when (authenticated? request)
+    (:identity request)))
+
+(defn require-authentication
+  "Middleware to require authentication for a route."
+  [handler]
+  (fn [request]
+    (if (authenticated? request)
+      (handler request)
+      {:status 401
+       :body {:error "Authentication required"
+              :message "You must provide a valid Bearer token to access this resource"}})))
+
+(defn require-role
+  "Middleware to require a specific role for a route."
+  [handler required-role]
+  (fn [request]
+    (if-let [user-info (user-context request)]
+      (if (has-role? user-info required-role)
+        (handler request)
+        {:status 403
+         :body {:error "Insufficient permissions"
+                :message (str "Access denied. Required role: " required-role)}})
+      {:status 401
+       :body {:error "Authentication required"
+              :message "You must provide a valid Bearer token to access this resource"}})))
+
+(defn require-any-role
+  "Middleware to require any of the specified roles for a route."
+  [handler required-roles]
+  (fn [request]
+    (if-let [user-info (user-context request)]
+      (if (has-any-role? user-info required-roles)
+        (handler request)
+        {:status 403
+         :body {:error "Insufficient permissions"
+                :message (str "Access denied. Required roles: " (str/join ", " required-roles))}})
+      {:status 401
+       :body {:error "Authentication required"
+              :message "You must provide a valid Bearer token to access this resource"}})))
+
+(defn validate-client-id
+  "Validate that the token was issued for the expected client."
+  [config claims]
+  (let [expected-client-id (get-in config [:auth :oidc :client-id])
+        token-client-id (or (:client_id claims) (:aud claims))]
+    (or (nil? expected-client-id)  ; Skip validation if not configured
+        (= expected-client-id token-client-id))))
+
+(defn validate-token-format
+  "Validate that a token string has the correct JWT format."
+  [token]
+  (and (string? token)
+       (not (str/blank? token))
+       (= 3 (count (str/split token #"\.")))))
+
+;; Development-only token creation (not OIDC compliant)
+(defn create-token
+  "Create a simple JWT token for development purposes.
+   This is NOT OIDC compliant and should only be used for development/testing."
+  [config user-info & {:keys [expires-in-seconds custom-claims]
+                       :or {expires-in-seconds 3600 custom-claims {}}}]
+  (when-let [secret (get-in config [:auth :dev :jwt-secret])]
+    (let [now (Instant/now)
+          exp (.plusSeconds now expires-in-seconds)
+          claims (merge {:sub (str (:user-id user-info))
+                         :iat (.getEpochSecond now)
+                         :exp (.getEpochSecond exp)
+                         :user-id (:user-id user-info)
+                         :email (:email user-info)
+                         :roles (or (:roles user-info) [])}
+                        custom-claims)]
+      (try
+        (jwt/sign claims secret)
+        (catch Exception e
+          (log/error e "Failed to create development JWT token")
+          nil)))))

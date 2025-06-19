@@ -8,7 +8,11 @@
             [reitit.ring.middleware.muuntaja]
             [reitit.swagger]
             [ring.util.response :refer [response not-found created bad-request]]
-            [clojure.tools.logging :as log]))
+            [clojure.tools.logging :as log]
+            [buddy.auth :refer [authenticated?]]
+            [{{top/ns}}.{{main/ns}}.auth :as auth]
+            [{{top/ns}}.{{main/ns}}.middleware.auth :as auth-middleware]
+            [{{top/ns}}.{{main/ns}}.handlers.auth :as auth-handlers]))
 
 ;; Simple health check handler that doesn't depend on database
 (defn health-handler
@@ -16,13 +20,16 @@
   [_request]
   (response {:status "ok" :timestamp (str (java.time.Instant/now))}))
 
-;; Placeholder handlers for now
+;; Placeholder handlers for now - now with authentication context
 (defn create-user-handler
   "Create a new user - placeholder implementation."
   [datasource]
   (fn [{:keys [body-params] :as request}]
-    (log/info "Create user called" {:body body-params})
-    (created "/api/users/placeholder" {:user-id "placeholder" :message "User creation not yet implemented"})))
+    (let [user-context (when (authenticated? request) (auth/user-context request))]
+      (log/info "Create user called" {:body body-params :authenticated-user user-context})
+      (created "/api/users/placeholder" {:user-id "placeholder" 
+                                         :message "User creation not yet implemented"
+                                         :created-by (:user-id user-context)}))))
 
 (defn get-user-handler
   "Get a user by ID - placeholder implementation."
@@ -56,8 +63,10 @@
 
 (defn make-routes
   "Create routes."
-  [datasource]
-  [["/openapi.json"
+  [config datasource]
+  (concat
+   (auth-handlers/make-auth-routes config datasource)
+   [["/openapi.json"
     {:get {:no-doc true
            :swagger {:info {:title "Generated Service API"
                             :description "A generated REST API service"
@@ -78,7 +87,8 @@
             :description "Get a list of all users with optional pagination"
             :parameters {:query [:map
                                  [:page {:optional true} :string]
-                                 [:size {:optional true} :string]]}
+                                 [:size {:optional true} :string]]
+                         :header [:map [:authorization {:optional true} :string]]}
             :responses {200 {:body [:map
                                     [:users [:vector :map]]
                                     [:total :int]
@@ -87,40 +97,52 @@
                                     [:message :string]]}}
             :handler (list-users-handler datasource)}
       :post {:summary "Create user"
-             :description "Create a new user"
-             :parameters {:body [:map [:user-id :string]]}
+             :description "Create a new user (requires authentication)"
+             :parameters {:body [:map [:user-id :string]]
+                          :header [:map [:authorization {:optional true} :string]]}
              :responses {201 {:body [:map
                                      [:user-id :string]
-                                     [:message :string]]}
-                         400 {:body [:map [:error :string]]}}
+                                     [:message :string]
+                                     [:created-by {:optional true} :string]]}
+                         400 {:body [:map [:error :string]]}
+                         401 {:body [:map [:error :string]]}}
+             :middleware [auth/require-authentication]
              :handler (create-user-handler datasource)}}]
 
     ["/users/:user-id"
      {:get {:summary "Get user by ID"
             :description "Retrieve a specific user by their ID"
-            :parameters {:path [:map [:user-id :string]]}
+            :parameters {:path [:map [:user-id :string]]
+                         :header [:map [:authorization {:optional true} :string]]}
             :responses {200 {:body [:map
                                     [:user-id :string]
                                     [:message :string]]}
                         404 {:body [:map [:error :string]]}}
             :handler (get-user-handler datasource)}
       :put {:summary "Update user"
-            :description "Update an existing user"
+            :description "Update an existing user (requires authentication)"
             :parameters {:path [:map [:user-id :string]]
-                         :body [:map [:user-id {:optional true} :string]]}
+                         :body [:map [:user-id {:optional true} :string]]
+                         :header [:map [:authorization {:optional true} :string]]}
             :responses {200 {:body [:map
                                     [:user-id :string]
                                     [:message :string]]}
+                        401 {:body [:map [:error :string]]}
                         404 {:body [:map [:error :string]]}}
+            :middleware [auth/require-authentication]
             :handler (update-user-handler datasource)}
       :delete {:summary "Delete user"
-               :description "Delete an existing user"
-               :parameters {:path [:map [:user-id :string]]}
+               :description "Delete an existing user (requires authentication with admin role)"
+               :parameters {:path [:map [:user-id :string]]
+                            :header [:map [:authorization {:optional true} :string]]}
                :responses {200 {:body [:map
                                        [:message :string]
                                        [:user-id :string]
                                        [:note :string]]}
+                           401 {:body [:map [:error :string]]}
+                           403 {:body [:map [:error :string]]}
                            404 {:body [:map [:error :string]]}}
+               :middleware [(partial auth/require-any-role ["admin"])]
                :handler (delete-user-handler datasource)}}]]
 
    ["/"
@@ -128,17 +150,26 @@
            :handler (fn [request]
                       (let [log-data (select-keys request [:scheme :path :request-method :headers])]
                         (log/info log-data)
-                        (response {:message "Welcome to the API"
-                                   :endpoints ["/health" "/api/users" "/openapi.json"]})))}}]])
+                        (response {:message "Welcome to the OIDC-enabled API"
+                                   :endpoints ["/health" "/api/users" "/auth/validate" "/auth/user" "/auth/jwks-info" "/openapi.json"]
+                                   :authentication "Provide Bearer token from your OIDC provider in Authorization header"})))}}]]))
 
 (defn make-router
   "Create router."
-  [datasource]
+  [config datasource]
   (reitit.ring/router
-   (make-routes datasource)
+   (make-routes config datasource)
    {:data {:coercion reitit.coercion.malli/coercion
            :muuntaja muuntaja/instance
-           :middleware [reitit.ring.middleware.muuntaja/format-negotiate-middleware
+           :middleware [;; CORS first
+                        auth-middleware/wrap-cors
+                        ;; Authentication middleware (parses tokens, doesn't require them)
+                        (fn [handler] (auth-middleware/wrap-authentication handler config))
+                        (fn [handler] (auth-middleware/wrap-authorization handler config))
+                        ;; Logging
+                        auth-middleware/log-auth-request
+                        ;; Standard middleware
+                        reitit.ring.middleware.muuntaja/format-negotiate-middleware
                         reitit.ring.middleware.muuntaja/format-request-middleware
                         reitit.ring.middleware.muuntaja/format-response-middleware
                         reitit.ring.middleware.exception/exception-middleware
@@ -148,7 +179,7 @@
 
 (defn root-handler
   "Main application handler."
-  [datasource]
+  [config datasource]
   (reitit.ring/ring-handler
-   (make-router datasource)
+   (make-router config datasource)
    (reitit.ring/redirect-trailing-slash-handler {:method :strip})))

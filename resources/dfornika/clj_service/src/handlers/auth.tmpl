@@ -1,0 +1,230 @@
+(ns {{top/ns}}.{{main/ns}}.handlers.auth
+  (:require [ring.util.response :refer [response bad-request not-found]]
+            [buddy.auth :refer [authenticated?]]
+            [{{top/ns}}.{{main/ns}}.auth :as auth]
+            [clojure.tools.logging :as log]
+            [clojure.string :as str]))
+
+(defn validate-token-handler
+  "Endpoint to validate an OIDC JWT token and return user information.
+   This is useful for other services that need to validate tokens."
+  [config datasource]
+  (fn [request]
+    (if (authenticated? request)
+      (let [user-info (auth/user-context request)]
+        (response {:valid true
+                   :user-id (:user-id user-info)
+                   :email (:email user-info)
+                   :name (:name user-info)
+                   :roles (:roles user-info)
+                   :client-id (:client-id user-info)
+                   :issuer (:issuer user-info)
+                   :expires-at (:token-expires-at user-info)}))
+      (-> (response {:valid false
+                     :error "Invalid or missing token"
+                     :message "Please provide a valid Bearer token from your OIDC provider"})
+          (assoc :status 401)))))
+
+(defn current-user-handler
+  "Get current user information from the OIDC JWT token.
+   This endpoint requires authentication."
+  [config datasource]
+  (fn [request]
+    (if-let [user-info (auth/user-context request)]
+      (response {:user-id (:user-id user-info)
+                 :email (:email user-info)
+                 :name (:name user-info)
+                 :roles (:roles user-info)
+                 :client-id (:client-id user-info)
+                 :issuer (:issuer user-info)
+                 :token-issued-at (:token-issued-at user-info)
+                 :token-expires-at (:token-expires-at user-info)})
+      (-> (response {:error "Authentication required"
+                     :message "Please provide a valid Bearer token from your OIDC provider"})
+          (assoc :status 401)))))
+
+(defn jwks-info-handler
+  "Get information about the current JWKS configuration.
+   This is useful for debugging and health checks."
+  [config datasource]
+  (fn [request]
+    (let [provider-url (get-in config [:auth :oidc :provider-url])
+          client-id (get-in config [:auth :oidc :client-id])
+          cache-ttl (get-in config [:auth :oidc :jwks-cache-ttl-minutes])]
+      (response {:oidc-provider provider-url
+                 :client-id client-id
+                 :jwks-cache-ttl-minutes cache-ttl
+                 :jwks-endpoint (str provider-url "/.well-known/jwks.json")
+                 :message "OIDC authentication is configured"}))))
+
+(defn refresh-jwks-handler
+  "Force refresh of JWKS cache.
+   This endpoint can be used to refresh the JWKS cache manually."
+  [config datasource]
+  (fn [request]
+    (try
+      (if-let [jwks (auth/fetch-jwks (get-in config [:auth :oidc :provider-url]))]
+        (do
+          ;; Force update the cache
+          (auth/get-jwks config)  ; This will refresh if needed
+          (response {:success true
+                     :message "JWKS cache refreshed successfully"
+                     :keys-count (count (:keys jwks))}))
+        (-> (response {:success false
+                       :error "Failed to fetch JWKS"
+                       :message "Unable to fetch JWKS from OIDC provider"})
+            (assoc :status 500)))
+      (catch Exception e
+        (log/error e "Failed to refresh JWKS")
+        (-> (response {:success false
+                       :error "Internal error"
+                       :message "Failed to refresh JWKS cache"})
+            (assoc :status 500))))))
+
+(defn health-check-handler
+  "Health check that includes OIDC connectivity status."
+  [config datasource]
+  (fn [request]
+    (try
+      (let [provider-url (get-in config [:auth :oidc :provider-url])
+            jwks-available? (boolean (auth/get-jwks config))]
+        (response {:status "ok"
+                   :timestamp (str (java.time.Instant/now))
+                   :oidc {:provider provider-url
+                          :jwks-available jwks-available?}}))
+      (catch Exception e
+        (log/error e "Health check failed")
+        (-> (response {:status "error"
+                       :timestamp (str (java.time.Instant/now))
+                       :error "OIDC health check failed"})
+            (assoc :status 500))))))
+
+;; Development-only endpoint for creating test tokens
+;; This should be disabled in production
+(defn create-dev-token-handler
+  "Create a test JWT token for development purposes.
+   WARNING: This endpoint should be disabled in production!"
+  [config datasource]
+  (fn [{{:keys [user-id email roles expires-in]} :body-params :as request}]
+    (if-let [dev-secret (get-in config [:auth :dev :jwt-secret])]
+      (let [default-user-id (or user-id "dev-user")
+            default-email (or email "dev@example.com")
+            default-roles (or roles ["user"])
+            expires-seconds (or expires-in 3600)
+            user-info {:user-id default-user-id
+                       :email default-email
+                       :roles default-roles}]
+        ;; Create a simple dev token (not OIDC compliant)
+        (if-let [token (auth/create-token config user-info 
+                                          :expires-in-seconds expires-seconds)]
+          (response {:token token
+                     :type "Bearer"
+                     :expires-in expires-seconds
+                     :user-info user-info
+                     :warning "This is a development-only token. Use your OIDC provider for production tokens."})
+          (-> (response {:error "Failed to create development token"})
+              (assoc :status 500))))
+      (-> (response {:error "Development tokens not configured"
+                     :message "Set auth.dev.jwt-secret in config to enable development tokens"})
+          (assoc :status 404)))))
+
+(defn make-auth-routes
+  "Create authentication routes for OIDC integration."
+  [config datasource]
+  [["/auth"
+    ["/validate"
+     {:post {:summary "Validate OIDC JWT token"
+             :description "Validate an OIDC JWT token and return user information"
+             :parameters {:header [:map [:authorization {:optional true} :string]]}
+             :responses {200 {:body [:map
+                                     [:valid :boolean]
+                                     [:user-id :string]
+                                     [:email {:optional true} :string]
+                                     [:name {:optional true} :string]
+                                     [:roles [:vector :string]]
+                                     [:client-id {:optional true} :string]
+                                     [:issuer {:optional true} :string]
+                                     [:expires-at :int]]}
+                         401 {:body [:map
+                                     [:valid :boolean]
+                                     [:error :string]
+                                     [:message :string]]}}
+             :handler (validate-token-handler config datasource)}}]
+
+    ["/user"
+     {:get {:summary "Get current user from OIDC token"
+            :description "Get current user information from OIDC JWT token"
+            :parameters {:header [:map [:authorization {:optional true} :string]]}
+            :responses {200 {:body [:map
+                                    [:user-id :string]
+                                    [:email {:optional true} :string]
+                                    [:name {:optional true} :string]
+                                    [:roles [:vector :string]]
+                                    [:client-id {:optional true} :string]
+                                    [:issuer {:optional true} :string]
+                                    [:token-issued-at :int]
+                                    [:token-expires-at :int]]}
+                        401 {:body [:map 
+                                    [:error :string]
+                                    [:message :string]]}}
+            :middleware [auth/require-authentication]
+            :handler (current-user-handler config datasource)}}]
+
+    ["/jwks-info"
+     {:get {:summary "Get JWKS configuration info"
+            :description "Get information about the OIDC provider and JWKS configuration"
+            :responses {200 {:body [:map
+                                    [:oidc-provider :string]
+                                    [:client-id :string]
+                                    [:jwks-cache-ttl-minutes :int]
+                                    [:jwks-endpoint :string]
+                                    [:message :string]]}}
+            :handler (jwks-info-handler config datasource)}}]
+
+    ["/refresh-jwks"
+     {:post {:summary "Refresh JWKS cache"
+             :description "Force refresh of the JWKS cache from OIDC provider"
+             :responses {200 {:body [:map
+                                     [:success :boolean]
+                                     [:message :string]
+                                     [:keys-count :int]]}
+                         500 {:body [:map
+                                     [:success :boolean]
+                                     [:error :string]
+                                     [:message :string]]}}
+             :handler (refresh-jwks-handler config datasource)}}]
+
+    ["/health"
+     {:get {:summary "Authentication health check"
+            :description "Health check including OIDC connectivity status"
+            :responses {200 {:body [:map
+                                    [:status :string]
+                                    [:timestamp :string]
+                                    [:oidc :map]]}
+                        500 {:body [:map
+                                    [:status :string]
+                                    [:timestamp :string]
+                                    [:error :string]]}}
+            :handler (health-check-handler config datasource)}}]
+
+    ;; Development-only endpoint
+    ["/dev/create-token"  
+     {:post {:summary "Create development token (Development only)"
+             :description "Create a test JWT token for development purposes - NOT OIDC compliant"
+             :parameters {:body [:map
+                                 [:user-id {:optional true} :string]
+                                 [:email {:optional true} :string]
+                                 [:roles {:optional true} [:vector :string]]
+                                 [:expires-in {:optional true} :int]]}
+             :responses {200 {:body [:map
+                                     [:token :string]
+                                     [:type :string]
+                                     [:expires-in :int]
+                                     [:user-info :map]
+                                     [:warning :string]]}
+                         404 {:body [:map
+                                     [:error :string]
+                                     [:message :string]]}
+                         500 {:body [:map
+                                     [:error :string]]}}
+             :handler (create-dev-token-handler config datasource)}}]]])

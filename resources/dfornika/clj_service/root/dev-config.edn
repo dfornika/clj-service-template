@@ -4,4 +4,10 @@
       :host #or [#env DATABASE_HOST "db"]
       :port #or [#env DATABASE_PORT 5432]
       :user #or [#env DATABASE_USER "appuser"]
-      :password #or [#env DATABASE_PASSWORD "secret"]}}
+      :password #or [#env DATABASE_PASSWORD "secret"]}
+ :auth {:oidc {:provider-url #or [#env OIDC_PROVIDER_URL "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_EXAMPLE"]
+               :client-id #or [#env OIDC_CLIENT_ID "your-client-id"]
+               :jwks-cache-ttl-minutes #or [#env JWKS_CACHE_TTL 60]}
+        ;; Optional: Keep for development/testing if needed
+        :dev {:jwt-secret #or [#env JWT_SECRET "dev-secret-change-in-production-use-env-var"]
+              :token-expiry-seconds #or [#env JWT_EXPIRY_SECONDS 3600]}}}
