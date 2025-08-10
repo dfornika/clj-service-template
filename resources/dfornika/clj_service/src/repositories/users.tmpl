@@ -14,13 +14,14 @@
 
 (def create-user-schema
   [:map
-   [:user-id :string]])
+   [:username [:string {:min 6}]]])
 
 (def update-user-schema
   [:map
    [:user-id {:optional true} :string]])
 
 ;; Validation helpers
+
 (defn validate-user-data
   "Validate user data against schema."
   [schema data]

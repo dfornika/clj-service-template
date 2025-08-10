@@ -1,0 +1,19 @@
+(ns {{top/ns}}.{{main/ns}}.auth-test
+  (:require [clojure.test :refer :all]
+            [{{top/ns}}.{{main/ns}}.auth :as auth])
+  (:import [java.time Instant]))
+
+(deftest token-expired?-test
+  (testing "should return true if the token's expiration is in the past"
+    (let [past-exp (.getEpochSecond (Instant/parse "2020-01-01T00:00:00Z"))
+          claims {:exp past-exp}]
+      (is (true? (auth/token-expired? claims)))))
+
+  (testing "should return false if the token's expiration is in the future"
+    (let [future-exp (+ (.getEpochSecond (Instant/now)) 3600)
+          claims {:exp future-exp}]
+      (is (false? (auth/token-expired? claims)))))
+
+  (testing "should return false if the token has no expiration"
+    (let [claims {:some-other-claim "value"}]
+      (is (false? (auth/token-expired? claims))))))

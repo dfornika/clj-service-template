@@ -1,0 +1,11 @@
+(ns {{top/ns}}.{{main/ns}}.repositories.users-test
+  (:require [clojure.test :refer :all]
+            [{{top/ns}}.{{main/ns}}.repositories.users :as users-repo]))
+
+(deftest validate-user-data-test
+  (testing "should return nil for valid user data"
+    (let [valid-user {:user-id "testuser"}]
+      (is (nil? (users-repo/validate-user-data users-repo/create-user-schema valid-user)))))
+
+
+)
